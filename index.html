@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Térképes Útvonaltervező és Navigáció</title>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Leaflet Routing Machine CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+  <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior-y: none;
+    }
+
+    /* Teljes képernyős térkép */
+    #map {
+      width: 100vw;
+      height: 100dvh;
+      z-index: 1;
+    }
+
+    /* Routing Machine rejtett alapértelmezett panel */
+    .leaflet-routing-container {
+      display: none !important;
+    }
+
+    /* Glassmorphism kártyák */
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    /* Autocomplete felugró ablak mobilon */
+    .autocomplete-suggestions {
+      max-height: 220px;
+      overflow-y: auto;
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 100%;
+      margin-top: 4px;
+      background: rgba(255, 255, 255, 0.98);
+      border-radius: 1rem;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+      z-index: 60;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .suggestion-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid #f3f4f6;
+      font-size: 0.9rem;
+      line-height: 1.25rem;
+    }
+
+    .suggestion-item:active, .suggestion-item:hover {
+      background-color: #eff6ff;
+      color: #1a73e8;
+    }
+
+    /* Gördíthető bottom sheet */
+    .bottom-sheet {
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .bottom-sheet.collapsed {
+      transform: translateY(calc(100% - 72px));
+    }
+
+    /* Egyedi gördítősáv */
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="bg-gray-900 h-screen w-screen overflow-hidden select-none">
+
+<!-- Térkép Konténer (Teljes képernyő) -->
+<div id="map" class="absolute inset-0"></div>
+
+<!-- Lebegő Felső Kereső Panel (Mobile Ergonomic Top Floating Card) -->
+<div class="fixed top-3 left-3 right-3 md:left-6 md:w-[400px] z-20 glass-panel rounded-2xl shadow-xl border border-white/40 p-3.5 space-y-2.5 transition-all">
+
+  <!-- Kiindulópont Kereső -->
+  <div class="relative">
+    <div class="relative flex items-center">
+                <span class="absolute left-3.5 text-emerald-500 text-lg">
+                    <i class="fa-solid fa-circle-dot"></i>
+                </span>
+      <input type="text" id="start-input" placeholder="Honnan? (Kezdőcím vagy GPS)"
+             class="w-full h-12 pl-11 pr-11 bg-gray-100/80 hover:bg-gray-100 focus:bg-white border border-transparent focus:border-blue-500 rounded-xl outline-none text-sm font-medium text-gray-800 transition-all placeholder-gray-400"
+             oninput="handleSearchInput('start')" autocomplete="off">
+
+      <!-- GPS Gomb -->
+      <button onclick="getCurrentLocation()" title="Jelenlegi pozíció használata"
+              class="absolute right-1.5 w-9 h-9 flex items-center justify-center text-blue-600 hover:bg-blue-100/60 active:bg-blue-200 rounded-lg transition-colors">
+        <i class="fa-solid fa-crosshairs text-lg"></i>
+      </button>
+    </div>
+    <!-- Ajánlások listája -->
+    <div id="start-suggestions" class="autocomplete-suggestions hidden"></div>
+  </div>
+
+  <!-- Célállomás Kereső -->
+  <div class="relative">
+    <div class="relative flex items-center">
+                <span class="absolute left-3.5 text-rose-500 text-lg">
+                    <i class="fa-solid fa-location-dot"></i>
+                </span>
+      <input type="text" id="end-input" placeholder="Hová? (Célállomás)"
+             class="w-full h-12 pl-11 pr-11 bg-gray-100/80 hover:bg-gray-100 focus:bg-white border border-transparent focus:border-blue-500 rounded-xl outline-none text-sm font-medium text-gray-800 transition-all placeholder-gray-400"
+             oninput="handleSearchInput('end')" autocomplete="off">
+    </div>
+    <!-- Ajánlások listája -->
+    <div id="end-suggestions" class="autocomplete-suggestions hidden"></div>
+  </div>
+
+  <!-- Akció Gombok -->
+  <div class="flex items-center gap-2 pt-0.5">
+    <button onclick="calculateRoute()"
+            class="flex-1 h-12 bg-blue-600 active:bg-blue-700 text-white font-semibold text-sm rounded-xl shadow-lg shadow-blue-600/30 flex items-center justify-center space-x-2 transition-transform active:scale-[0.98]">
+      <i class="fa-solid fa-directions text-base"></i>
+      <span>Tervezés</span>
+    </button>
+    <button onclick="resetPlanner()" title="Alaphelyzet"
+            class="w-12 h-12 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-600 rounded-xl flex items-center justify-center transition-colors">
+      <i class="fa-solid fa-rotate-left text-base"></i>
+    </button>
+  </div>
+
+  <!-- Értesítési üzenet sáv -->
+  <div id="status-message" class="hidden p-2.5 rounded-xl text-xs font-semibold border flex items-center space-x-2"></div>
+</div>
+
+<!-- Alsó Beúszó Lap / Bottom Sheet (Útvonal adatok & Részletek) -->
+<div id="bottom-sheet" class="fixed bottom-0 left-0 right-0 md:left-auto md:right-6 md:w-[400px] md:bottom-6 z-30 glass-panel rounded-t-3xl md:rounded-3xl shadow-2xl border border-white/50 bottom-sheet collapsed flex flex-col max-h-[70vh]">
+
+  <!-- Sheet Húzóka / Fejléc -->
+  <div onclick="toggleBottomSheet()" class="w-full py-3 px-4 flex flex-col items-center justify-center cursor-pointer border-b border-gray-100">
+    <div class="w-12 h-1.5 bg-gray-300 rounded-full mb-2"></div>
+    <div class="w-full flex items-center justify-between px-2">
+      <div class="flex items-center space-x-2 text-blue-600 font-bold text-sm">
+        <i class="fa-solid fa-route text-lg"></i>
+        <span>Útvonal részletek</span>
+      </div>
+      <button class="text-gray-400 hover:text-gray-600 text-sm focus:outline-none">
+        <i id="sheet-arrow-icon" class="fa-solid fa-chevron-up transition-transform duration-300"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Sheet Tartalom -->
+  <div class="p-4 overflow-y-auto custom-scrollbar space-y-4">
+    <!-- Összegző Kártyák -->
+    <div class="grid grid-cols-2 gap-3">
+      <div class="bg-blue-50/80 border border-blue-100 p-3 rounded-2xl flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center text-lg shadow-md shadow-blue-500/20">
+          <i class="fa-solid fa-road"></i>
+        </div>
+        <div>
+          <div class="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Távolság</div>
+          <div id="summary-distance" class="text-lg font-extrabold text-gray-900">-- km</div>
+        </div>
+      </div>
+
+      <div class="bg-indigo-50/80 border border-indigo-100 p-3 rounded-2xl flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center text-lg shadow-md shadow-indigo-500/20">
+          <i class="fa-solid fa-clock"></i>
+        </div>
+        <div>
+          <div class="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Időtartam</div>
+          <div id="summary-time" class="text-lg font-extrabold text-gray-900">-- perc</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Részletes Navigációs Utasítások -->
+    <div>
+      <div class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2.5 px-1">Lépésről lépésre</div>
+      <div id="instructions-list" class="space-y-2"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Alkalmazás Logika -->
+<script>
+  let map;
+  let startPoint = null;
+  let endPoint = null;
+  let startMarker = null;
+  let endMarker = null;
+  let routingControl = null;
+  let debounceTimer = null;
+  let isSheetExpanded = false;
+
+  window.onload = function() {
+    initMap();
+  };
+
+  function initMap() {
+    // Térkép inicializálása mobilon jobb navigálhatósággal
+    map = L.map('map', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([47.4979, 19.0402], 11);
+
+    // Egyedi pozíciójú Zoom vezérlő
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    // Ingyenes OpenStreetMap csempék
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(map);
+
+    // Térkép kattintás kezelő pontok kijelöléséhez
+    map.on('click', function(e) {
+      if (!startPoint) {
+        setStartLocation(e.latlng.lat, e.latlng.lng, `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`);
+      } else if (!endPoint) {
+        setEndLocation(e.latlng.lat, e.latlng.lng, `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`);
+        calculateRoute();
+      }
+    });
+  }
+
+  // Keresési javaslatok (Nominatim API)
+  function handleSearchInput(type) {
+    clearTimeout(debounceTimer);
+    const inputVal = document.getElementById(`${type}-input`).value;
+    const suggestionsEl = document.getElementById(`${type}-suggestions`);
+
+    if (inputVal.length < 3) {
+      suggestionsEl.classList.add('hidden');
+      return;
+    }
+
+    debounceTimer = setTimeout(() => {
+      fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(inputVal)}&countrycodes=hu,ro,sk,at,hr,si,rs&limit=5`)
+        .then(response => response.json())
+        .then(data => {
+          suggestionsEl.innerHTML = '';
+          if (data.length === 0) {
+            suggestionsEl.classList.add('hidden');
+            return;
+          }
+
+          data.forEach(item => {
+            const div = document.createElement('div');
+            div.className = 'suggestion-item';
+            div.innerText = item.display_name;
+            div.onclick = () => {
+              const lat = parseFloat(item.lat);
+              const lon = parseFloat(item.lon);
+              if (type === 'start') {
+                setStartLocation(lat, lon, item.display_name);
+              } else {
+                setEndLocation(lat, lon, item.display_name);
+              }
+              suggestionsEl.classList.add('hidden');
+            };
+            suggestionsEl.appendChild(div);
+          });
+          suggestionsEl.classList.remove('hidden');
+        })
+        .catch(err => console.error("Keresési hiba:", err));
+    }, 300);
+  }
+
+  // GPS helyzet lekérése Geolocation API-val
+  function getCurrentLocation() {
+    showStatus('GPS pozíció keresése...', 'info');
+
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+
+          fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+            .then(res => res.json())
+            .then(data => {
+              const addressName = data.display_name || "Saját pozíció";
+              setStartLocation(lat, lng, addressName);
+              showStatus('GPS pozíció beállítva!', 'success');
+              map.setView([lat, lng], 15);
+            })
+            .catch(() => {
+              setStartLocation(lat, lng, "Saját pozíció");
+              hideStatus();
+            });
+        },
+        error => {
+          showStatus('Sikertelen GPS lekérés. Hozzáférés megtagadva.', 'error');
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    } else {
+      showStatus('A készülék nem támogatja a GPS-t.', 'error');
+    }
+  }
+
+  function setStartLocation(lat, lng, name) {
+    startPoint = L.latLng(lat, lng);
+    document.getElementById('start-input').value = name;
+
+    if (startMarker) map.removeLayer(startMarker);
+
+    const greenIcon = L.icon({
+      iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+      popupAnchor: [1, -34],
+      shadowSize: [41, 41]
+    });
+
+    startMarker = L.marker(startPoint, { icon: greenIcon }).addTo(map);
+  }
+
+  function setEndLocation(lat, lng, name) {
+    endPoint = L.latLng(lat, lng);
+    document.getElementById('end-input').value = name;
+
+    if (endMarker) map.removeLayer(endMarker);
+
+    const redIcon = L.icon({
+      iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+      popupAnchor: [1, -34],
+      shadowSize: [41, 41]
+    });
+
+    endMarker = L.marker(endPoint, { icon: redIcon }).addTo(map);
+  }
+
+  // Útvonal kiszámítása KÉK VONAALLAL (#1a73e8)
+  function calculateRoute() {
+    if (!startPoint || !endPoint) {
+      showStatus('Add meg a kiindulópontot és a célt is!', 'error');
+      return;
+    }
+
+    hideStatus();
+
+    if (routingControl) {
+      map.removeControl(routingControl);
+    }
+
+    routingControl = L.Routing.control({
+      waypoints: [startPoint, endPoint],
+      router: L.Routing.osrmv1({
+        serviceUrl: 'https://router.project-osrm.org/route/v1',
+        language: 'hu'
+      }),
+      // KÉK VIONAL STÍLUS (#1a73e8)
+      lineOptions: {
+        styles: [
+          { color: '#003b8e', opacity: 0.35, weight: 10 },
+          { color: '#1a73e8', opacity: 0.95, weight: 6 }
+        ]
+      },
+      createMarker: function() { return null; },
+      addWaypoints: false,
+      draggableWaypoints: false,
+      fitSelectedRoutes: true
+    }).addTo(map);
+
+    routingControl.on('routesfound', function(e) {
+      const routes = e.routes;
+      const summary = routes[0].summary;
+
+      const distanceKm = (summary.totalDistance / 1000).toFixed(1);
+      const travelTimeMin = Math.round(summary.totalTime / 60);
+
+      document.getElementById('summary-distance').innerText = `${distanceKm} km`;
+      document.getElementById('summary-time').innerText = formatTime(travelTimeMin);
+
+      const instructionsList = document.getElementById('instructions-list');
+      instructionsList.innerHTML = '';
+
+      routes[0].instructions.forEach((instruction) => {
+        const stepDiv = document.createElement('div');
+        stepDiv.className = 'flex items-start space-x-3 p-2.5 bg-white/60 rounded-xl text-xs text-gray-700 shadow-sm border border-gray-100';
+
+        const stepIcon = getInstructionIcon(instruction.type);
+
+        stepDiv.innerHTML = `
+                        <div class="mt-0.5 text-blue-600 font-bold w-5 text-center text-sm">${stepIcon}</div>
+                        <div class="flex-1">
+                            <p class="font-semibold text-gray-800 leading-snug">${instruction.text}</p>
+                            <span class="text-[10px] text-gray-400 font-medium">${Math.round(instruction.distance)} m</span>
+                        </div>
+                    `;
+        instructionsList.appendChild(stepDiv);
+      });
+
+      // Nyissuk ki az alsó lapot az adatokkal
+      expandBottomSheet();
+    });
+
+    routingControl.on('routingerror', function() {
+      showStatus('Nem található útvonal a pontok között.', 'error');
+    });
+  }
+
+  function resetPlanner() {
+    startPoint = null;
+    endPoint = null;
+
+    if (startMarker) map.removeLayer(startMarker);
+    if (endMarker) map.removeLayer(endMarker);
+    if (routingControl) map.removeControl(routingControl);
+
+    document.getElementById('start-input').value = '';
+    document.getElementById('end-input').value = '';
+    document.getElementById('summary-distance').innerText = '-- km';
+    document.getElementById('summary-time').innerText = '-- perc';
+    document.getElementById('instructions-list').innerHTML = '';
+
+    collapseBottomSheet();
+    hideStatus();
+
+    map.setView([47.4979, 19.0402], 11);
+  }
+
+  // Bottom Sheet Nyitás/Zárás
+  function toggleBottomSheet() {
+    if (isSheetExpanded) {
+      collapseBottomSheet();
+    } else {
+      expandBottomSheet();
+    }
+  }
+
+  function expandBottomSheet() {
+    const sheet = document.getElementById('bottom-sheet');
+    const icon = document.getElementById('sheet-arrow-icon');
+    sheet.classList.remove('collapsed');
+    icon.classList.add('rotate-180');
+    isSheetExpanded = true;
+  }
+
+  function collapseBottomSheet() {
+    const sheet = document.getElementById('bottom-sheet');
+    const icon = document.getElementById('sheet-arrow-icon');
+    sheet.classList.add('collapsed');
+    icon.classList.remove('rotate-180');
+    isSheetExpanded = false;
+  }
+
+  function formatTime(minutes) {
+    if (minutes < 60) {
+      return `${minutes} perc`;
+    } else {
+      const hours = Math.floor(minutes / 60);
+      const remMinutes = minutes % 60;
+      return `${hours} ó ${remMinutes} p`;
+    }
+  }
+
+  function getInstructionIcon(type) {
+    switch (type) {
+      case 'Straight': return '<i class="fa-solid fa-arrow-up"></i>';
+      case 'SlightRight':
+      case 'Right': return '<i class="fa-solid fa-arrow-right"></i>';
+      case 'SharpRight': return '<i class="fa-solid fa-turn-right"></i>';
+      case 'SlightLeft':
+      case 'Left': return '<i class="fa-solid fa-arrow-left"></i>';
+      case 'SharpLeft': return '<i class="fa-solid fa-turn-left"></i>';
+      case 'Roundabout': return '<i class="fa-solid fa-rotate-right"></i>';
+      case 'DestinationReached': return '<i class="fa-solid fa-flag-checkered"></i>';
+      default: return '<i class="fa-solid fa-location-arrow"></i>';
+    }
+  }
+
+  function showStatus(text, type) {
+    const statusEl = document.getElementById('status-message');
+    statusEl.innerText = text;
+    statusEl.classList.remove('hidden', 'bg-red-50', 'text-red-700', 'border-red-200', 'bg-blue-50', 'text-blue-700', 'border-blue-200', 'bg-emerald-50', 'text-emerald-700', 'border-emerald-200');
+
+    if (type === 'error') {
+      statusEl.classList.add('bg-red-50', 'text-red-700', 'border-red-200');
+    } else if (type === 'success') {
+      statusEl.classList.add('bg-emerald-50', 'text-emerald-700', 'border-emerald-200');
+    } else {
+      statusEl.classList.add('bg-blue-50', 'text-blue-700', 'border-blue-200');
+    }
+  }
+
+  function hideStatus() {
+    document.getElementById('status-message').classList.add('hidden');
+  }
+</script>
+</body>
+</html>
