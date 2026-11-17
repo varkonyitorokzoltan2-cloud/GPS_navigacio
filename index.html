@@ -20,10 +20,6 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Leaflet Routing Machine CSS & JS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
-  <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
-
   <style>
     body {
       font-family: 'Inter', sans-serif;
@@ -35,10 +31,6 @@
       width: 100vw;
       height: 100dvh;
       z-index: 1;
-    }
-
-    .leaflet-routing-container {
-      display: none !important;
     }
 
     .glass-panel {
@@ -201,7 +193,7 @@
   let endPoint = null;
   let startMarker = null;
   let endMarker = null;
-  let routingControl = null;
+  let routePolyline = null;
   let debounceTimer = null;
   let isSheetExpanded = false;
 
@@ -341,8 +333,8 @@
     endMarker = L.marker(endPoint, { icon: redIcon }).addTo(map);
   }
 
-  // UTVONALTERVEZES JAVITOTT OSRM PARAMETEREKKEL
-  function calculateRoute() {
+  // KÖZVETLEN FETCH OSRM API KÉRÉS 5000 MÉTERES RÁILLESTÉSI SUGÁRRAL
+  async function calculateRoute() {
     if (!startPoint || !endPoint) {
       showStatus('Add meg a kiindulópontot és a célt is!', 'error');
       return;
@@ -350,68 +342,72 @@
 
     hideStatus();
 
-    if (routingControl) {
-      map.removeControl(routingControl);
+    if (routePolyline) {
+      map.removeLayer(routePolyline);
     }
 
-    routingControl = L.Routing.control({
-      waypoints: [startPoint, endPoint],
-      router: L.Routing.osrmv1({
-        serviceUrl: 'https://router.project-osrm.org/route/v1',
-        language: 'hu',
-        profile: 'driving',
-        useHints: false,
-        requestParameters: {
-          radiuses: '1000;1000'
-        }
-      }),
-      lineOptions: {
-        styles: [
-          { color: '#003b8e', opacity: 0.35, weight: 10 },
-          { color: '#1a73e8', opacity: 0.95, weight: 6 }
-        ]
-      },
-      createMarker: function() { return null; },
-      addWaypoints: false,
-      draggableWaypoints: false,
-      fitSelectedRoutes: true
-    }).addTo(map);
+    // OSRM URL összeállítása: radiuses=5000;5000 (5 km-es körzetben illeszt a legközelebbi kijelölt közútra)
+    const url = `https://router.project-osrm.org/route/v1/driving/${startPoint.lng},${startPoint.lat};${endPoint.lng},${endPoint.lat}?overview=full&geometries=geojson&steps=true&radiuses=5000;5000`;
 
-    routingControl.on('routesfound', function(e) {
-      const routes = e.routes;
-      const summary = routes[0].summary;
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
 
-      const distanceKm = (summary.totalDistance / 1000).toFixed(1);
-      const travelTimeMin = Math.round(summary.totalTime / 60);
+      if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+        showStatus('Nem található útvonal a pontok között.', 'error');
+        return;
+      }
+
+      const route = data.routes[0];
+      const coordinates = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+
+      // KÉK SZÍNŰ VONAL KIRAJZOLÁSA (#1a73e8)
+      routePolyline = L.polyline(coordinates, {
+        color: '#1a73e8',
+        weight: 6,
+        opacity: 0.9,
+        lineJoin: 'round'
+      }).addTo(map);
+
+      map.fitBounds(routePolyline.getBounds(), { padding: [50, 50] });
+
+      // Összegző adatok frissítése
+      const distanceKm = (route.distance / 1000).toFixed(1);
+      const travelTimeMin = Math.round(route.duration / 60);
 
       document.getElementById('summary-distance').innerText = `${distanceKm} km`;
       document.getElementById('summary-time').innerText = formatTime(travelTimeMin);
 
+      // Utasítások listázása
       const instructionsList = document.getElementById('instructions-list');
       instructionsList.innerHTML = '';
 
-      routes[0].instructions.forEach((instruction) => {
-        const stepDiv = document.createElement('div');
-        stepDiv.className = 'flex items-start space-x-3 p-2.5 bg-white/60 rounded-xl text-xs text-gray-700 shadow-sm border border-gray-100';
+      if (route.legs && route.legs[0] && route.legs[0].steps) {
+        route.legs[0].steps.forEach(step => {
+          const stepDiv = document.createElement('div');
+          stepDiv.className = 'flex items-start space-x-3 p-2.5 bg-white/60 rounded-xl text-xs text-gray-700 shadow-sm border border-gray-100';
 
-        const stepIcon = getInstructionIcon(instruction.type);
+          const stepIcon = getInstructionIcon(step.maneuver.type, step.maneuver.modifier);
+          const nameText = step.name ? ` (${step.name})` : '';
+          const text = `${getManeuverText(step.maneuver.type, step.maneuver.modifier)}${nameText}`;
 
-        stepDiv.innerHTML = `
-          <div class="mt-0.5 text-blue-600 font-bold w-5 text-center text-sm">${stepIcon}</div>
-          <div class="flex-1">
-              <p class="font-semibold text-gray-800 leading-snug">${instruction.text}</p>
-              <span class="text-[10px] text-gray-400 font-medium">${Math.round(instruction.distance)} m</span>
-          </div>
-        `;
-        instructionsList.appendChild(stepDiv);
-      });
+          stepDiv.innerHTML = `
+            <div class="mt-0.5 text-blue-600 font-bold w-5 text-center text-sm">${stepIcon}</div>
+            <div class="flex-1">
+                <p class="font-semibold text-gray-800 leading-snug">${text}</p>
+                <span class="text-[10px] text-gray-400 font-medium">${Math.round(step.distance)} m</span>
+            </div>
+          `;
+          instructionsList.appendChild(stepDiv);
+        });
+      }
 
       expandBottomSheet();
-    });
 
-    routingControl.on('routingerror', function() {
-      showStatus('Nem található útvonal a pontok között.', 'error');
-    });
+    } catch (err) {
+      console.error(err);
+      showStatus('Hiba történt az útvonal lekérése során.', 'error');
+    }
   }
 
   function resetPlanner() {
@@ -420,7 +416,7 @@
 
     if (startMarker) map.removeLayer(startMarker);
     if (endMarker) map.removeLayer(endMarker);
-    if (routingControl) map.removeControl(routingControl);
+    if (routePolyline) map.removeLayer(routePolyline);
 
     document.getElementById('start-input').value = '';
     document.getElementById('end-input').value = '';
@@ -468,19 +464,24 @@
     }
   }
 
-  function getInstructionIcon(type) {
-    switch (type) {
-      case 'Straight': return '<i class="fa-solid fa-arrow-up"></i>';
-      case 'SlightRight':
-      case 'Right': return '<i class="fa-solid fa-arrow-right"></i>';
-      case 'SharpRight': return '<i class="fa-solid fa-turn-right"></i>';
-      case 'SlightLeft':
-      case 'Left': return '<i class="fa-solid fa-arrow-left"></i>';
-      case 'SharpLeft': return '<i class="fa-solid fa-turn-left"></i>';
-      case 'Roundabout': return '<i class="fa-solid fa-rotate-right"></i>';
-      case 'DestinationReached': return '<i class="fa-solid fa-flag-checkered"></i>';
-      default: return '<i class="fa-solid fa-location-arrow"></i>';
+  function getManeuverText(type, modifier) {
+    if (type === 'depart') return 'Indulj el';
+    if (type === 'arrive') return 'Megérkeztél a célállomáshoz';
+    if (type === 'turn') {
+      if (modifier && modifier.includes('right')) return 'Fordulj jobbra';
+      if (modifier && modifier.includes('left')) return 'Fordulj balra';
     }
+    if (type === 'roundabout') return 'Hajts be a körforgalomba';
+    return 'Haladj tovább';
+  }
+
+  function getInstructionIcon(type, modifier) {
+    if (type === 'depart') return '<i class="fa-solid fa-play"></i>';
+    if (type === 'arrive') return '<i class="fa-solid fa-flag-checkered"></i>';
+    if (modifier && modifier.includes('right')) return '<i class="fa-solid fa-arrow-right"></i>';
+    if (modifier && modifier.includes('left')) return '<i class="fa-solid fa-arrow-left"></i>';
+    if (type === 'roundabout') return '<i class="fa-solid fa-rotate-right"></i>';
+    return '<i class="fa-solid fa-arrow-up"></i>';
   }
 
   function showStatus(text, type) {
