@@ -31,26 +31,22 @@
       overscroll-behavior-y: none;
     }
 
-    /* Teljes képernyős térkép */
     #map {
       width: 100vw;
       height: 100dvh;
       z-index: 1;
     }
 
-    /* Routing Machine rejtett alapértelmezett panel */
     .leaflet-routing-container {
       display: none !important;
     }
 
-    /* Glassmorphism kártyák */
     .glass-panel {
       background: rgba(255, 255, 255, 0.92);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
     }
 
-    /* Autocomplete felugró ablak mobilon */
     .autocomplete-suggestions {
       max-height: 220px;
       overflow-y: auto;
@@ -79,7 +75,6 @@
       color: #1a73e8;
     }
 
-    /* Gördíthető bottom sheet */
     .bottom-sheet {
       transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
@@ -88,7 +83,6 @@
       transform: translateY(calc(100% - 72px));
     }
 
-    /* Egyedi gördítősáv */
     .custom-scrollbar::-webkit-scrollbar {
       width: 4px;
     }
@@ -100,43 +94,40 @@
 </head>
 <body class="bg-gray-900 h-screen w-screen overflow-hidden select-none">
 
-<!-- Térkép Konténer (Teljes képernyő) -->
+<!-- Térkép Konténer -->
 <div id="map" class="absolute inset-0"></div>
 
-<!-- Lebegő Felső Kereső Panel (Mobile Ergonomic Top Floating Card) -->
+<!-- Lebegő Felső Kereső Panel -->
 <div class="fixed top-3 left-3 right-3 md:left-6 md:w-[400px] z-20 glass-panel rounded-2xl shadow-xl border border-white/40 p-3.5 space-y-2.5 transition-all">
 
   <!-- Kiindulópont Kereső -->
   <div class="relative">
     <div class="relative flex items-center">
-                <span class="absolute left-3.5 text-emerald-500 text-lg">
-                    <i class="fa-solid fa-circle-dot"></i>
-                </span>
+      <span class="absolute left-3.5 text-emerald-500 text-lg">
+        <i class="fa-solid fa-circle-dot"></i>
+      </span>
       <input type="text" id="start-input" placeholder="Honnan? (Kezdőcím vagy GPS)"
              class="w-full h-12 pl-11 pr-11 bg-gray-100/80 hover:bg-gray-100 focus:bg-white border border-transparent focus:border-blue-500 rounded-xl outline-none text-sm font-medium text-gray-800 transition-all placeholder-gray-400"
              oninput="handleSearchInput('start')" autocomplete="off">
 
-      <!-- GPS Gomb -->
       <button onclick="getCurrentLocation()" title="Jelenlegi pozíció használata"
               class="absolute right-1.5 w-9 h-9 flex items-center justify-center text-blue-600 hover:bg-blue-100/60 active:bg-blue-200 rounded-lg transition-colors">
         <i class="fa-solid fa-crosshairs text-lg"></i>
       </button>
     </div>
-    <!-- Ajánlások listája -->
     <div id="start-suggestions" class="autocomplete-suggestions hidden"></div>
   </div>
 
   <!-- Célállomás Kereső -->
   <div class="relative">
     <div class="relative flex items-center">
-                <span class="absolute left-3.5 text-rose-500 text-lg">
-                    <i class="fa-solid fa-location-dot"></i>
-                </span>
+      <span class="absolute left-3.5 text-rose-500 text-lg">
+        <i class="fa-solid fa-location-dot"></i>
+      </span>
       <input type="text" id="end-input" placeholder="Hová? (Célállomás)"
              class="w-full h-12 pl-11 pr-11 bg-gray-100/80 hover:bg-gray-100 focus:bg-white border border-transparent focus:border-blue-500 rounded-xl outline-none text-sm font-medium text-gray-800 transition-all placeholder-gray-400"
              oninput="handleSearchInput('end')" autocomplete="off">
     </div>
-    <!-- Ajánlások listája -->
     <div id="end-suggestions" class="autocomplete-suggestions hidden"></div>
   </div>
 
@@ -157,10 +148,9 @@
   <div id="status-message" class="hidden p-2.5 rounded-xl text-xs font-semibold border flex items-center space-x-2"></div>
 </div>
 
-<!-- Alsó Beúszó Lap / Bottom Sheet (Útvonal adatok & Részletek) -->
+<!-- Alsó Beúszó Lap / Bottom Sheet -->
 <div id="bottom-sheet" class="fixed bottom-0 left-0 right-0 md:left-auto md:right-6 md:w-[400px] md:bottom-6 z-30 glass-panel rounded-t-3xl md:rounded-3xl shadow-2xl border border-white/50 bottom-sheet collapsed flex flex-col max-h-[70vh]">
 
-  <!-- Sheet Húzóka / Fejléc -->
   <div onclick="toggleBottomSheet()" class="w-full py-3 px-4 flex flex-col items-center justify-center cursor-pointer border-b border-gray-100">
     <div class="w-12 h-1.5 bg-gray-300 rounded-full mb-2"></div>
     <div class="w-full flex items-center justify-between px-2">
@@ -174,9 +164,7 @@
     </div>
   </div>
 
-  <!-- Sheet Tartalom -->
   <div class="p-4 overflow-y-auto custom-scrollbar space-y-4">
-    <!-- Összegző Kártyák -->
     <div class="grid grid-cols-2 gap-3">
       <div class="bg-blue-50/80 border border-blue-100 p-3 rounded-2xl flex items-center space-x-3">
         <div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center text-lg shadow-md shadow-blue-500/20">
@@ -199,7 +187,6 @@
       </div>
     </div>
 
-    <!-- Részletes Navigációs Utasítások -->
     <div>
       <div class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2.5 px-1">Lépésről lépésre</div>
       <div id="instructions-list" class="space-y-2"></div>
@@ -207,7 +194,7 @@
   </div>
 </div>
 
-<!-- Alkalmazás Logika -->
+<!-- JS Logika -->
 <script>
   let map;
   let startPoint = null;
@@ -223,21 +210,17 @@
   };
 
   function initMap() {
-    // Térkép inicializálása mobilon jobb navigálhatósággal
     map = L.map('map', {
       zoomControl: false,
       attributionControl: false
     }).setView([47.4979, 19.0402], 11);
 
-    // Egyedi pozíciójú Zoom vezérlő
     L.control.zoom({ position: 'topright' }).addTo(map);
 
-    // Ingyenes OpenStreetMap csempék
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19
     }).addTo(map);
 
-    // Térkép kattintás kezelő pontok kijelöléséhez
     map.on('click', function(e) {
       if (!startPoint) {
         setStartLocation(e.latlng.lat, e.latlng.lng, `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`);
@@ -248,7 +231,6 @@
     });
   }
 
-  // Keresési javaslatok (Nominatim API)
   function handleSearchInput(type) {
     clearTimeout(debounceTimer);
     const inputVal = document.getElementById(`${type}-input`).value;
@@ -291,7 +273,6 @@
     }, 300);
   }
 
-  // GPS helyzet lekérése Geolocation API-val
   function getCurrentLocation() {
     showStatus('GPS pozíció keresése...', 'info');
 
@@ -360,7 +341,7 @@
     endMarker = L.marker(endPoint, { icon: redIcon }).addTo(map);
   }
 
-  // Útvonal kiszámítása KÉK VONAALLAL (#1a73e8)
+  // UTVONALTERVEZES JAVITOTT OSRM PARAMETEREKKEL
   function calculateRoute() {
     if (!startPoint || !endPoint) {
       showStatus('Add meg a kiindulópontot és a célt is!', 'error');
@@ -377,9 +358,13 @@
       waypoints: [startPoint, endPoint],
       router: L.Routing.osrmv1({
         serviceUrl: 'https://router.project-osrm.org/route/v1',
-        language: 'hu'
+        language: 'hu',
+        profile: 'driving',
+        useHints: false,
+        requestParameters: {
+          radiuses: '1000;1000'
+        }
       }),
-      // KÉK VIONAL STÍLUS (#1a73e8)
       lineOptions: {
         styles: [
           { color: '#003b8e', opacity: 0.35, weight: 10 },
@@ -412,16 +397,15 @@
         const stepIcon = getInstructionIcon(instruction.type);
 
         stepDiv.innerHTML = `
-                        <div class="mt-0.5 text-blue-600 font-bold w-5 text-center text-sm">${stepIcon}</div>
-                        <div class="flex-1">
-                            <p class="font-semibold text-gray-800 leading-snug">${instruction.text}</p>
-                            <span class="text-[10px] text-gray-400 font-medium">${Math.round(instruction.distance)} m</span>
-                        </div>
-                    `;
+          <div class="mt-0.5 text-blue-600 font-bold w-5 text-center text-sm">${stepIcon}</div>
+          <div class="flex-1">
+              <p class="font-semibold text-gray-800 leading-snug">${instruction.text}</p>
+              <span class="text-[10px] text-gray-400 font-medium">${Math.round(instruction.distance)} m</span>
+          </div>
+        `;
         instructionsList.appendChild(stepDiv);
       });
 
-      // Nyissuk ki az alsó lapot az adatokkal
       expandBottomSheet();
     });
 
@@ -450,7 +434,6 @@
     map.setView([47.4979, 19.0402], 11);
   }
 
-  // Bottom Sheet Nyitás/Zárás
   function toggleBottomSheet() {
     if (isSheetExpanded) {
       collapseBottomSheet();
